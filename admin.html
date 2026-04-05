@@ -398,13 +398,6 @@ usersUnsub = onSnapshot(collection(db, 'users'), snap => {
     applyPermissions(role);
   }
 });
-
-    usersUnsub = onSnapshot(collection(db, 'users'), snap => {
-      allUsers = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      renderUsers();
-      updateStats();
-      renderChart();
-    });
   }
 
   function updateStats() {
@@ -559,7 +552,7 @@ tbody.innerHTML = data.map((t, i) => {
     });
   }
 
-  function populateEditTeamSelect() {
+function populateEditTeamSelect() {
     const sel = document.getElementById('editTeamSelect');
     const cur = sel ? sel.value : '';
     if (!sel) return;
@@ -567,6 +560,7 @@ tbody.innerHTML = data.map((t, i) => {
     allTeams.forEach(t => {
       const opt = document.createElement('option');
       const count = allUsers.filter(u => u.team_id === t.id).length;
+      opt.value = t.id;   
       opt.textContent = `${t.name} (${count}/3)`;
       if (t.id === cur) opt.selected = true;
       sel.appendChild(opt);
@@ -607,29 +601,57 @@ tbody.innerHTML = data.map((t, i) => {
     };
 
     try {
-      const batch = writeBatch(db);
+  const batch = writeBatch(db);
 
-      batch.update(doc(db, 'users', userId), updatedData);
+  // 1. تحديث بيانات المستخدم
+  const userRef = doc(db, 'users', userId);
+  batch.update(userRef, updatedData);
 
-      if (oldTeamId !== newTeamId) {
-        if (oldTeamId)  batch.update(doc(db,'teams',oldTeamId), { members_count: increment(-1) });
-        if (newTeamId) {
-          const newTeam = allTeams.find(t => t.id === newTeamId);
-          const count = allUsers.filter(u => u.team_id === newTeamId).length;
-        if (count >= 3) {
-            showToast('الفريق ممتلئ! لا يمكن إضافة عضو جديد', 'error');
-            return;
-          }
-          batch.update(doc(db,'teams',newTeamId), { members_count: increment(1) });
-        }
+  // 2. تغيير الفريق
+  if (oldTeamId !== newTeamId) {
+
+    // تقليل عدد أعضاء الفريق القديم
+    if (oldTeamId) {
+      const oldTeamRef = doc(db, 'teams', oldTeamId);
+      batch.update(oldTeamRef, {
+        members_count: increment(-1)
+      });
+    }
+
+    // إضافة للفريق الجديد
+    if (newTeamId) {
+
+      const newTeam = allTeams.find(t => t.id === newTeamId);
+
+      if (!newTeam) {
+        showToast('الفريق الجديد غير موجود', 'error');
+        return;
       }
 
-      await batch.commit();
-      closeModalById('editUserModal');
-      showToast('تم تحديث البيانات بنجاح ✅', 'success');
-    } catch (err) {
-      showToast('معندكش الصلاحيه لده');
+      const count = allUsers.filter(u => u.team_id === newTeamId).length;
+
+      if (count >= 3) {
+        showToast('الفريق ممتلئ! لا يمكن إضافة عضو جديد', 'error');
+        return;
+      }
+
+      const newTeamRef = doc(db, 'teams', newTeamId);
+      batch.update(newTeamRef, {
+        members_count: increment(1)
+      });
     }
+  }
+
+  // 3. تنفيذ كل العمليات مرة واحدة
+  await batch.commit();
+
+  closeModalById('editUserModal');
+  showToast('تم تحديث البيانات بنجاح ✅', 'success');
+
+} catch (err) {
+  console.error("Firestore Error:", err);
+  showToast(err.message || 'معندكش الصلاحية أو حدث خطأ ❌', 'error');
+}
   };
 
 
